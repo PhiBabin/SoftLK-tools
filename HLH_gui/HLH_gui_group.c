@@ -50,7 +50,7 @@ static int group_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 
       if(style==HLH_GUI_STYLE_00)
          return in->x;
-      else if(style==HLH_GUI_STYLE_01)
+      else if(style==HLH_GUI_STYLE_01 || style==HLH_GUI_STYLE_02)
          return in->x + HLH_gui_get_scale() * 2;
    }
    else if(msg==HLH_GUI_MSG_GET_HEIGHT)
@@ -59,7 +59,7 @@ static int group_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 
       if(style==HLH_GUI_STYLE_00)
          return in->y + 0;
-      else if(style==HLH_GUI_STYLE_01)
+      else if(style==HLH_GUI_STYLE_01 || style==HLH_GUI_STYLE_02)
          return in->y + HLH_gui_get_scale() * 2;
    }
    else if(msg==HLH_GUI_MSG_GET_CHILD_SPACE)
@@ -68,7 +68,7 @@ static int group_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 
       if(style==HLH_GUI_STYLE_00)
       {}
-      else if(style==HLH_GUI_STYLE_01)
+      else if(style==HLH_GUI_STYLE_01 || style==HLH_GUI_STYLE_02)
       {
          space->minx += HLH_gui_get_scale();
          space->miny += HLH_gui_get_scale();

@@ -36,6 +36,12 @@ HLH_gui_rect HLH_gui_rect_make(int minx, int miny, int maxx, int maxy)
    };
 }
 
+
+HLH_gui_rect HLH_gui_rect_shrink(HLH_gui_rect* bounds, int x_pad, int y_pad)
+{
+   return HLH_gui_rect_make(bounds->minx + x_pad, bounds->miny + y_pad, bounds->maxx - x_pad, bounds->maxy - y_pad);
+}
+
 int HLH_gui_rect_inside(HLH_gui_rect r, HLH_gui_point p)
 {
    if(p.x<r.minx||p.y<r.miny)

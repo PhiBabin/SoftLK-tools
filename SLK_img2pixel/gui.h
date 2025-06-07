@@ -12,6 +12,8 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 
 #define _GUI_H_
 
+#include "external/emscripten_browser_file.h"
+
 void gui_construct(void);
 
 //NULL --> defaults

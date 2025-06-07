@@ -136,7 +136,7 @@ HLH_gui_window *HLH_gui_window_create(const char *title, int width, int height, 
    core_windows = realloc(core_windows, sizeof(*core_windows) * core_window_count);
    core_windows[core_window_count - 1] = window;
 
-   if(SDL_CreateWindowAndRenderer(width, height, SDL_WINDOW_RESIZABLE, &window->window, &window->renderer)<0)
+   if(SDL_CreateWindowAndRenderer(width, height, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE, &window->window, &window->renderer)<0)
       fprintf(stderr, "SDL_CreateWindowAndRenderer(): %s\n", SDL_GetError());
    SDL_SetWindowTitle(window->window, title);
 
@@ -168,6 +168,8 @@ HLH_gui_window *HLH_gui_window_create(const char *title, int width, int height, 
       }
    }
 
+   // With Emscripten this event is push after the first window size change, so it sets the window to an incorect size
+#ifndef __EMSCRIPTEN__
    //Send fake resize event
    SDL_Event e;
    e.type = SDL_WINDOWEVENT;
@@ -184,289 +186,308 @@ HLH_gui_window *HLH_gui_window_create(const char *title, int width, int height, 
 
    if(SDL_PushEvent(&e)<0)
       fprintf(stderr, "SDL_PushEvent(): %s\n", SDL_GetError());
-
+#endif
    return window;
+}
+
+
+
+int HLH_gui_iterate_once(HLH_gui_mouse* mouse)
+{
+   SDL_Event event;
+
+   // With Emscripten this wait call causes a busy wait
+#ifndef __EMSCRIPTEN__
+   if(!SDL_WaitEvent(&event))
+      return 1;
+#else
+   if(!SDL_PollEvent(&event))
+      return 1;
+#endif
+
+   HLH_gui_window *win = NULL;
+
+   if(SDL_QuitRequested())
+      return 0;
+
+   switch(event.type)
+   {
+   case SDL_QUIT:
+      for(int i = 0; i<core_window_count; i++)
+         HLH_gui_element_destroy(&core_windows[i]->e);
+      return 0;
+   case SDL_WINDOWEVENT:
+      win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
+      if(win==NULL)
+         return 1;
+
+      switch(event.window.event)
+      {
+      case SDL_WINDOWEVENT_FOCUS_GAINED:
+      case SDL_WINDOWEVENT_FOCUS_LOST:
+      case SDL_WINDOWEVENT_SHOWN:
+      case SDL_WINDOWEVENT_EXPOSED:
+         if(SDL_SetRenderTarget(win->renderer, NULL)<0)
+            fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
+         if(SDL_RenderClear(win->renderer)<0)
+            fprintf(stderr, "SDL_RenderClear(): %s\n", SDL_GetError());
+         if(SDL_RenderCopy(win->renderer, win->target, NULL, NULL)<0)
+            fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
+         if(SDL_RenderCopy(win->renderer, win->overlay, NULL, NULL)<0)
+            fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
+         SDL_RenderPresent(win->renderer);
+         break;
+      case SDL_WINDOWEVENT_SIZE_CHANGED:
+      {
+         int width = event.window.data1;
+         int height = event.window.data2;
+         printf("SDL_WINDOWEVENT_SIZE_CHANGED %d %d\n", width, height);
+         if(win->width!=width||win->height!=height)
+         {
+            win->width = width;
+            win->height = height;
+
+            SDL_DestroyTexture(win->target);
+            win->target = SDL_CreateTexture(win->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, win->width, win->height);
+            if(win->target==NULL)
+               fprintf(stderr, "SDL_CreateTexture(): %s\n", SDL_GetError());
+            SDL_DestroyTexture(win->overlay);
+
+            win->overlay = SDL_CreateTexture(win->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, win->width, win->height);
+            if(win->overlay==NULL)
+               fprintf(stderr, "SDL_CreateTexture(): %s\n", SDL_GetError());
+            if(SDL_SetTextureBlendMode(win->overlay, SDL_BLENDMODE_BLEND)<0)
+               fprintf(stderr, "SDL_SetTextureBlendMode(): %s\n", SDL_GetError());
+
+            if(SDL_SetRenderTarget(win->renderer, win->target)<0)
+               fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
+
+            win->e.bounds = HLH_gui_rect_make(0, 0, win->width, win->height);
+
+            HLH_gui_element_layout(&win->e, win->e.bounds);
+            HLH_gui_element_redraw(&win->e);
+         }
+      }
+      break;
+      case SDL_WINDOWEVENT_LEAVE:
+
+         mouse->pos.x = -1;
+         mouse->pos.y = -1;
+         mouse->wheel = 0;
+         mouse->rel.x = 0;
+         mouse->rel.y = 0;
+         HLH_gui_handle_mouse(&win->e, *mouse);
+         break;
+      case SDL_WINDOWEVENT_CLOSE:
+         //Close all if window 0, otherwise close current one
+         if(win==core_windows[0])
+         {
+            for(int i = 0; i<core_window_count; i++)
+               HLH_gui_element_destroy(&core_windows[i]->e);
+
+            return 0;
+         }
+
+         for(int i = 0; i<core_window_count; i++)
+         {
+            if(core_windows[i]->blocking==win)
+               core_windows[i]->blocking = NULL;
+         }
+
+         for(int i = 0; i<core_window_count; i++)
+         {
+            if(core_windows[i]==win)
+            {
+               HLH_gui_element_destroy(&win->e);
+               core_windows[i] = core_windows[core_window_count - 1];
+               core_window_count--;
+               core_windows = realloc(core_windows, sizeof(*core_windows) * core_window_count);
+               win = NULL;
+               break;
+            }
+         }
+
+         break;
+      }
+      break;
+   case SDL_MOUSEMOTION:
+      win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
+      if(win==NULL)
+         return 1;
+
+      //Hack to prevent flooding the event queue
+      //SDL_GetMouseState(&win->mouse_x, &win->mouse_y);
+      //TODO(Captain4LK): similar thing for relative mouse pos?
+      mouse->rel.x = event.motion.xrel;
+      mouse->rel.y = event.motion.yrel;
+      SDL_GetMouseState(&mouse->pos.x, &mouse->pos.y);
+      SDL_FlushEvent(SDL_MOUSEMOTION);
+
+      //mouse->pos.x = event.motion.x;
+      //mouse->pos.y = event.motion.y;
+      mouse->wheel = 0;
+      HLH_gui_handle_mouse(&win->e, *mouse);
+
+      break;
+   case SDL_MOUSEWHEEL:
+      win = core_find_window(SDL_GetWindowFromID(event.wheel.windowID));
+      if(win==NULL)
+         return 1;
+      mouse->wheel = event.wheel.y;
+      HLH_gui_handle_mouse(&win->e, *mouse);
+      break;
+   case SDL_KEYDOWN:
+      if(event.key.state==SDL_PRESSED)
+      {
+         win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
+         if(win==NULL)
+            return 1;
+
+         if(win->keyboard!=NULL)
+         {
+            HLH_gui_textinput in = {0};
+            in.type = 1;
+            in.keycode = event.key.keysym.sym;
+            HLH_gui_element_msg(win->keyboard,HLH_GUI_MSG_TEXTINPUT,0,&in);
+            return 1;
+         }
+
+         if(event.key.repeat)
+            HLH_gui_element_msg_all(&win->e, HLH_GUI_MSG_BUTTON_REPEAT, event.key.keysym.scancode, NULL);
+         else
+            HLH_gui_element_msg_all(&win->e, HLH_GUI_MSG_BUTTON_DOWN, event.key.keysym.scancode, NULL);
+
+         win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
+      }
+      break;
+   case SDL_KEYUP:
+      if(event.key.state==SDL_RELEASED)
+      {
+         win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
+         if(win==NULL)
+            return 1;
+
+         HLH_gui_element_msg_all(&win->e, HLH_GUI_MSG_BUTTON_UP, event.key.keysym.scancode, NULL);
+
+         win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
+      }
+      break;
+   case SDL_DROPFILE:
+      {
+         win = core_find_window(SDL_GetWindowFromID(event.drop.windowID));
+         if(win==NULL)
+            return 1;
+
+         HLH_gui_element_msg(&win->e,HLH_GUI_MSG_DRAGNDROP,0,event.drop.file);
+         SDL_free(event.drop.file);
+      }
+      break;
+   case SDL_MOUSEBUTTONDOWN:
+      win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
+      if(win==NULL)
+            return 1;
+
+      mouse->pos.x = event.button.x;
+      mouse->pos.y = event.button.y;
+      mouse->wheel = 0;
+      switch(event.button.button)
+      {
+      case SDL_BUTTON_LEFT: mouse->button |= HLH_GUI_MOUSE_LEFT; if(event.button.clicks==2)mouse->button |= HLH_GUI_MOUSE_DBLE; break;
+      case SDL_BUTTON_RIGHT: mouse->button |= HLH_GUI_MOUSE_RIGHT; break;
+      case SDL_BUTTON_MIDDLE: mouse->button |= HLH_GUI_MOUSE_MIDDLE; break;
+      }
+      HLH_gui_handle_mouse(&win->e, *mouse);
+      win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
+
+      break;
+   case SDL_MOUSEBUTTONUP:
+      win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
+      if(win==NULL)
+         return 1;
+
+      mouse->pos.x = event.button.x;
+      mouse->pos.y = event.button.y;
+      mouse->wheel = 0;
+      switch(event.button.button)
+      {
+      case SDL_BUTTON_LEFT: mouse->button &= ~HLH_GUI_MOUSE_LEFT; mouse->button &= ~HLH_GUI_MOUSE_DBLE; break;
+      case SDL_BUTTON_RIGHT: mouse->button &= ~HLH_GUI_MOUSE_RIGHT; break;
+      case SDL_BUTTON_MIDDLE: mouse->button &= ~HLH_GUI_MOUSE_MIDDLE; break;
+      }
+      HLH_gui_handle_mouse(&win->e, *mouse);
+      win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
+
+      break;
+   case SDL_TEXTINPUT:
+      win = core_find_window(SDL_GetWindowFromID(event.text.windowID));
+      if(win==NULL||win->keyboard==NULL)
+         return 1;
+
+      for(int i = 0;i<strlen(event.text.text);i++)
+      {
+         HLH_gui_textinput in = {0};
+         in.type = 0;
+         in.ch = event.text.text[i];
+         HLH_gui_element_msg(win->keyboard,HLH_GUI_MSG_TEXTINPUT,0,&in);
+      }
+      win = core_find_window(SDL_GetWindowFromID(event.text.windowID));
+
+      break;
+   case SDL_TEXTEDITING:
+      win = core_find_window(SDL_GetWindowFromID(event.edit.windowID));
+      if(win==NULL||win->keyboard==NULL)
+         return 1;
+
+      break;
+   }
+
+   if(event.type==HLH_gui_timer_event)
+   {
+      //TODO(Captain4LK): what do we do if this takes longer than timer_interval?
+      win = core_find_window(SDL_GetWindowFromID(event.edit.windowID));
+      if(win!=NULL)
+         HLH_gui_element_msg(event.user.data1, HLH_GUI_MSG_TIMER, 0, NULL);
+   }
+
+   if(win!=NULL)
+   {
+      if(HLH_array_length(win->redraw)>0)
+      {
+         if(SDL_SetRenderTarget(win->renderer, win->target)<0)
+            fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
+
+         for(int i = 0;i<HLH_array_length(win->redraw);i++)
+         {
+            if(win->redraw[i]->needs_redraw)
+               HLH_gui_element_redraw_msg(win->redraw[i]);
+         }
+         HLH_array_length_set(win->redraw,0);
+
+         if(SDL_SetRenderTarget(win->renderer, NULL)<0)
+            fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
+         if(SDL_RenderClear(win->renderer)<0)
+            fprintf(stderr, "SDL_RenderClear(): %s\n", SDL_GetError());
+         if(SDL_RenderCopy(win->renderer, win->target, NULL, NULL)<0)
+            fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
+         if(SDL_RenderCopy(win->renderer, win->overlay, NULL, NULL)<0)
+            fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
+         SDL_RenderPresent(win->renderer);
+      }
+   }
+
+   return 1;
 }
 
 int HLH_gui_message_loop(void)
 {
    HLH_gui_mouse mouse = {0};
 
-   for(;;)
+   int result = 1;
+   while (result)
    {
-      SDL_Event event;
-      if(!SDL_WaitEvent(&event))
-         fprintf(stderr, "SDL_WaitEvent(): %s\n", SDL_GetError());
-
-      HLH_gui_window *win = NULL;
-
-      if(SDL_QuitRequested())
-         return 0;
-
-      switch(event.type)
-      {
-      case SDL_QUIT:
-         for(int i = 0; i<core_window_count; i++)
-            HLH_gui_element_destroy(&core_windows[i]->e);
-         return 0;
-      case SDL_WINDOWEVENT:
-         win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
-         if(win==NULL)
-            continue;
-
-         switch(event.window.event)
-         {
-         case SDL_WINDOWEVENT_FOCUS_GAINED:
-         case SDL_WINDOWEVENT_FOCUS_LOST:
-         case SDL_WINDOWEVENT_SHOWN:
-         case SDL_WINDOWEVENT_EXPOSED:
-            if(SDL_SetRenderTarget(win->renderer, NULL)<0)
-               fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
-            if(SDL_RenderClear(win->renderer)<0)
-               fprintf(stderr, "SDL_RenderClear(): %s\n", SDL_GetError());
-            if(SDL_RenderCopy(win->renderer, win->target, NULL, NULL)<0)
-               fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
-            if(SDL_RenderCopy(win->renderer, win->overlay, NULL, NULL)<0)
-               fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
-            SDL_RenderPresent(win->renderer);
-            break;
-         case SDL_WINDOWEVENT_SIZE_CHANGED:
-         {
-            int width = event.window.data1;
-            int height = event.window.data2;
-            if(win->width!=width||win->height!=height)
-            {
-               win->width = width;
-               win->height = height;
-
-               SDL_DestroyTexture(win->target);
-               win->target = SDL_CreateTexture(win->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, win->width, win->height);
-               if(win->target==NULL)
-                  fprintf(stderr, "SDL_CreateTexture(): %s\n", SDL_GetError());
-               SDL_DestroyTexture(win->overlay);
-
-               win->overlay = SDL_CreateTexture(win->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, win->width, win->height);
-               if(win->overlay==NULL)
-                  fprintf(stderr, "SDL_CreateTexture(): %s\n", SDL_GetError());
-               if(SDL_SetTextureBlendMode(win->overlay, SDL_BLENDMODE_BLEND)<0)
-                  fprintf(stderr, "SDL_SetTextureBlendMode(): %s\n", SDL_GetError());
-
-               if(SDL_SetRenderTarget(win->renderer, win->target)<0)
-                  fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
-
-               win->e.bounds = HLH_gui_rect_make(0, 0, win->width, win->height);
-
-               HLH_gui_element_layout(&win->e, win->e.bounds);
-               HLH_gui_element_redraw(&win->e);
-            }
-         }
-         break;
-         case SDL_WINDOWEVENT_LEAVE:
-
-            mouse.pos.x = -1;
-            mouse.pos.y = -1;
-            mouse.wheel = 0;
-            mouse.rel.x = 0;
-            mouse.rel.y = 0;
-            HLH_gui_handle_mouse(&win->e, mouse);
-            break;
-         case SDL_WINDOWEVENT_CLOSE:
-            //Close all if window 0, otherwise close current one
-            if(win==core_windows[0])
-            {
-               for(int i = 0; i<core_window_count; i++)
-                  HLH_gui_element_destroy(&core_windows[i]->e);
-
-               return 0;
-            }
-
-            for(int i = 0; i<core_window_count; i++)
-            {
-               if(core_windows[i]->blocking==win)
-                  core_windows[i]->blocking = NULL;
-            }
-
-            for(int i = 0; i<core_window_count; i++)
-            {
-               if(core_windows[i]==win)
-               {
-                  HLH_gui_element_destroy(&win->e);
-                  core_windows[i] = core_windows[core_window_count - 1];
-                  core_window_count--;
-                  core_windows = realloc(core_windows, sizeof(*core_windows) * core_window_count);
-                  win = NULL;
-                  break;
-               }
-            }
-
-            break;
-         }
-         break;
-      case SDL_MOUSEMOTION:
-         win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
-         if(win==NULL)
-            continue;
-
-         //Hack to prevent flooding the event queue
-         //SDL_GetMouseState(&win->mouse_x, &win->mouse_y);
-         //TODO(Captain4LK): similar thing for relative mouse pos?
-         mouse.rel.x = event.motion.xrel;
-         mouse.rel.y = event.motion.yrel;
-         SDL_GetMouseState(&mouse.pos.x, &mouse.pos.y);
-         SDL_FlushEvent(SDL_MOUSEMOTION);
-
-         //mouse.pos.x = event.motion.x;
-         //mouse.pos.y = event.motion.y;
-         mouse.wheel = 0;
-         HLH_gui_handle_mouse(&win->e, mouse);
-
-         break;
-      case SDL_MOUSEWHEEL:
-         win = core_find_window(SDL_GetWindowFromID(event.wheel.windowID));
-         if(win==NULL)
-            continue;
-         mouse.wheel = event.wheel.y;
-         HLH_gui_handle_mouse(&win->e, mouse);
-         break;
-      case SDL_KEYDOWN:
-         if(event.key.state==SDL_PRESSED)
-         {
-            win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
-            if(win==NULL)
-               continue;
-
-            if(win->keyboard!=NULL)
-            {
-               HLH_gui_textinput in = {0};
-               in.type = 1;
-               in.keycode = event.key.keysym.sym;
-               HLH_gui_element_msg(win->keyboard,HLH_GUI_MSG_TEXTINPUT,0,&in);
-               continue;
-            }
-
-            if(event.key.repeat)
-               HLH_gui_element_msg_all(&win->e, HLH_GUI_MSG_BUTTON_REPEAT, event.key.keysym.scancode, NULL);
-            else
-               HLH_gui_element_msg_all(&win->e, HLH_GUI_MSG_BUTTON_DOWN, event.key.keysym.scancode, NULL);
-
-            win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
-         }
-         break;
-      case SDL_KEYUP:
-         if(event.key.state==SDL_RELEASED)
-         {
-            win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
-            if(win==NULL)
-               continue;
-
-            HLH_gui_element_msg_all(&win->e, HLH_GUI_MSG_BUTTON_UP, event.key.keysym.scancode, NULL);
-
-            win = core_find_window(SDL_GetWindowFromID(event.key.windowID));
-         }
-         break;
-      case SDL_DROPFILE:
-         {
-            win = core_find_window(SDL_GetWindowFromID(event.drop.windowID));
-            if(win==NULL)
-               continue;
-
-            HLH_gui_element_msg(&win->e,HLH_GUI_MSG_DRAGNDROP,0,event.drop.file);
-            SDL_free(event.drop.file);
-         }
-         break;
-      case SDL_MOUSEBUTTONDOWN:
-         win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
-         if(win==NULL)
-            continue;
-
-         mouse.pos.x = event.button.x;
-         mouse.pos.y = event.button.y;
-         mouse.wheel = 0;
-         switch(event.button.button)
-         {
-         case SDL_BUTTON_LEFT: mouse.button |= HLH_GUI_MOUSE_LEFT; if(event.button.clicks==2)mouse.button |= HLH_GUI_MOUSE_DBLE; break;
-         case SDL_BUTTON_RIGHT: mouse.button |= HLH_GUI_MOUSE_RIGHT; break;
-         case SDL_BUTTON_MIDDLE: mouse.button |= HLH_GUI_MOUSE_MIDDLE; break;
-         }
-         HLH_gui_handle_mouse(&win->e, mouse);
-         win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
-
-         break;
-      case SDL_MOUSEBUTTONUP:
-         win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
-         if(win==NULL)
-            continue;
-
-         mouse.pos.x = event.button.x;
-         mouse.pos.y = event.button.y;
-         mouse.wheel = 0;
-         switch(event.button.button)
-         {
-         case SDL_BUTTON_LEFT: mouse.button &= ~HLH_GUI_MOUSE_LEFT; mouse.button &= ~HLH_GUI_MOUSE_DBLE; break;
-         case SDL_BUTTON_RIGHT: mouse.button &= ~HLH_GUI_MOUSE_RIGHT; break;
-         case SDL_BUTTON_MIDDLE: mouse.button &= ~HLH_GUI_MOUSE_MIDDLE; break;
-         }
-         HLH_gui_handle_mouse(&win->e, mouse);
-         win = core_find_window(SDL_GetWindowFromID(event.window.windowID));
-
-         break;
-      case SDL_TEXTINPUT:
-         win = core_find_window(SDL_GetWindowFromID(event.text.windowID));
-         if(win==NULL||win->keyboard==NULL)
-            continue;
-
-         for(int i = 0;i<strlen(event.text.text);i++)
-         {
-            HLH_gui_textinput in = {0};
-            in.type = 0;
-            in.ch = event.text.text[i];
-            HLH_gui_element_msg(win->keyboard,HLH_GUI_MSG_TEXTINPUT,0,&in);
-         }
-         win = core_find_window(SDL_GetWindowFromID(event.text.windowID));
-
-         break;
-      case SDL_TEXTEDITING:
-         win = core_find_window(SDL_GetWindowFromID(event.edit.windowID));
-         if(win==NULL||win->keyboard==NULL)
-            continue;
-
-         break;
-      }
-
-      if(event.type==HLH_gui_timer_event)
-      {
-         //TODO(Captain4LK): what do we do if this takes longer than timer_interval?
-         win = core_find_window(SDL_GetWindowFromID(event.edit.windowID));
-         if(win!=NULL)
-            HLH_gui_element_msg(event.user.data1, HLH_GUI_MSG_TIMER, 0, NULL);
-      }
-
-      if(win!=NULL)
-      {
-         if(HLH_array_length(win->redraw)>0)
-         {
-            if(SDL_SetRenderTarget(win->renderer, win->target)<0)
-               fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
-
-            for(int i = 0;i<HLH_array_length(win->redraw);i++)
-            {
-               if(win->redraw[i]->needs_redraw)
-                  HLH_gui_element_redraw_msg(win->redraw[i]);
-            }
-            HLH_array_length_set(win->redraw,0);
-
-            if(SDL_SetRenderTarget(win->renderer, NULL)<0)
-               fprintf(stderr, "SDL_SetRenderTarget(): %s\n", SDL_GetError());
-            if(SDL_RenderClear(win->renderer)<0)
-               fprintf(stderr, "SDL_RenderClear(): %s\n", SDL_GetError());
-            if(SDL_RenderCopy(win->renderer, win->target, NULL, NULL)<0)
-               fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
-            if(SDL_RenderCopy(win->renderer, win->overlay, NULL, NULL)<0)
-               fprintf(stderr, "SDL_RenderCopy(): %s\n", SDL_GetError());
-            SDL_RenderPresent(win->renderer);
-         }
-      }
+     result = HLH_gui_iterate_once(&mouse);
    }
+   return result;
 }
 
 void HLH_gui_set_scale(int scale)

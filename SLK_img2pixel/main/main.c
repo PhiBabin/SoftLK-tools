@@ -29,6 +29,9 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 #include "cute_files.h"
 
 #include "HLH_gui.h"
+
+#include <emscripten.h>
+#include <emscripten/html5.h>
 //-------------------------------------
 
 //Internal includes
@@ -47,16 +50,24 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 //-------------------------------------
 
 //Function prototypes
+
+int load_file(uint8_t *buffer, size_t size);
 //-------------------------------------
+
 
 //Function implementations
 
-int main(int argc, char **argv)
+void one_iter(void)
+{ 
+  static HLH_gui_mouse mouse = {0};
+  HLH_gui_iterate_once(&mouse);
+}
+
+int main(int, char **)
 {
    HLH_gui_init();
 
    settings_load("settings.json");
-   puts("HERE");
    atexit(settings_save);
 
    gui_construct();
@@ -65,7 +76,12 @@ int main(int argc, char **argv)
    gui_load_preset(f);
    if(f!=NULL)
       fclose(f);
-
-   return HLH_gui_message_loop();
+   #ifdef __EMSCRIPTEN__
+      puts("Start main loop");
+      // Receives a function to call and some user data to provide it.
+      emscripten_set_main_loop(one_iter, -1, 1);
+   #else
+      return HLH_gui_message_loop();
+   #endif
 }
 //-------------------------------------

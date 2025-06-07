@@ -17,6 +17,10 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 #include "HLH_gui.h"
 #include "HLH_json.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 
 #include "../../external/tinyfiledialogs.h"
 //-------------------------------------
@@ -57,12 +61,42 @@ static int slk_path_pop_ext(const char *path, char *out, char *ext);
 
 //Function implementations
 
+#ifdef __EMSCRIPTEN__
+
+// Images are written to a temporary file on the emscripten filesystem
+const char* tmp_image_file_path = "current_img.png";
+
+// MSCRIPTEN_KEEPALIVE
+int load_file(uint8_t *buffer, size_t size) {
+   puts("Inside load_file");
+  FILE* fd = fopen(tmp_image_file_path, "wb");
+  fwrite(buffer, size, 1, fd);
+  fflush(fd);
+
+  return 1;
+}
+#endif
+
 //SLK_image32 *image_select()
 FILE *image_load_select()
 {
+
+#ifdef __EMSCRIPTEN__
+   puts("Open file dialog");
+   EM_ASM(
+      var file_selector = document.createElement('input');
+      file_selector.setAttribute('type', 'file');
+      file_selector.setAttribute('onchange','open_file(event)');
+      file_selector.setAttribute('accept','.png'); // optional - limit accepted file types 
+      file_selector.click();
+   );
+   puts("Finish click");
+   const char* file_path = tmp_image_file_path;
+#else
    const char *filter_patterns[2] = {"*.png"};
    const char *file_path = tinyfd_openFileDialog("Select a file",path_image_load,0,filter_patterns,NULL,0);
 
+#endif
    if(file_path!=NULL)
    {
       strncpy(path_image_load,file_path,511);

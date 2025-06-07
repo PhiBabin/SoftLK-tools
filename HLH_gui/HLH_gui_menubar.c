@@ -82,7 +82,7 @@ static int dropdown_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 
    if(msg==HLH_GUI_MSG_GET_WIDTH)
    {
-      return drop->text_len * HLH_GUI_GLYPH_WIDTH * HLH_gui_get_scale() + 10 * HLH_gui_get_scale();
+      return drop->text_len * HLH_GUI_GLYPH_WIDTH * HLH_gui_get_scale() + 30 * HLH_gui_get_scale();
    }
    else if(msg==HLH_GUI_MSG_GET_HEIGHT)
    {
@@ -231,7 +231,7 @@ static int dropdown_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 static void dropdown_draw(HLH_gui_dropdown *p)
 {
    uint64_t style = p->e.flags & HLH_GUI_STYLE;
-   if(style==HLH_GUI_STYLE_00)
+   if(style==HLH_GUI_STYLE_00 || style==HLH_GUI_STYLE_02)
    {
       HLH_gui_rect bounds = p->e.bounds;
       int scale = HLH_gui_get_scale();

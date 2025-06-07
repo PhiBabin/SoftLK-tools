@@ -326,6 +326,7 @@ typedef struct
 void HLH_gui_init(void);
 HLH_gui_window *HLH_gui_window_create(const char *title, int width, int height, const char *path_icon);
 int HLH_gui_message_loop(void);
+int HLH_gui_iterate_once(HLH_gui_mouse* mouse_ptr);
 void HLH_gui_set_scale(int scale);
 int HLH_gui_get_scale(void);
 void HLH_gui_handle_mouse(HLH_gui_element *e, HLH_gui_mouse m);
@@ -353,6 +354,7 @@ void HLH_gui_element_timer(HLH_gui_element *e, int interval); //Use sparingly
 
 //Rectangle
 HLH_gui_rect HLH_gui_rect_make(int minx, int miny, int maxx, int maxy);
+HLH_gui_rect HLH_gui_rect_shrink(HLH_gui_rect* bounds, int x_pad, int y_pad);
 int HLH_gui_rect_inside(HLH_gui_rect r, HLH_gui_point p);
 
 //Point

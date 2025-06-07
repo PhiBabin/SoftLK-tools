@@ -15,6 +15,16 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 #include <string.h>
 #include <time.h>
 
+
+#define STBI_WINDOWS_UTF8
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#include "stb_image.h"
+#define STBIW_WINDOWS_UTF8
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_STATIC
+#include "stb_image_write.h"
+
 #include "cute_files.h"
 
 #include "HLH_gui.h"
@@ -269,8 +279,9 @@ static int entry_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int button_add_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int button_sub_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int button_batch_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
-static int menu_load_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
-static int menu_save_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
+static int menu_file_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
+static int menu_example_images_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
+static int menu_example_palettes_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int menu_help_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int menu_tools_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int checkbutton_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
@@ -278,6 +289,35 @@ static int radiobutton_dither_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, v
 static int radiobutton_distance_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static int button_palette_gen_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
 static void radiobutton_palette_draw(HLH_gui_radiobutton *r);
+
+static const char* example_palettes[] =
+{
+   "3-3-2",
+   "aap-64",
+   "apollo",
+   "aurora",
+   "dawnbringer-8",
+   "dawnbringer-16",
+   "dawnbringer-32",
+   "duel",
+   "endesga-32",
+   "endesga-64",
+   "pico-8",
+   "playpal",
+   "quake",
+   "resurrect-64",
+   "slso-8",
+   "sweetie-16"
+};
+const size_t example_palettes_len = sizeof(example_palettes) / sizeof(const char*);
+
+static const char* example_images[] =
+{
+   "crate",
+   "david",
+   "rock"
+};
+const size_t example_images_len = sizeof(example_images) / sizeof(const char*);
 
 static void ui_construct_batch();
 
@@ -296,35 +336,32 @@ void gui_construct(void)
    //-------------------------------------
    const char *menu0[] = 
    {
-      "Image",
-      "Preset",
-      "Palette",
+      "Load Image",
+      "Load Preset",
+      "Load Palette",
+      "Save Image",
+      "Save Preset",
+      "Save Palette as .pal",
+      "Save Palette as .hex",
    };
-   const char *menu1[] = 
-   {
-      "Image",
-      "Preset",
-      "Palette",
-   };
-   const char *menu2[] = 
-   {
-      "Batch",
-      "File watch",
-   };
+
+   const size_t menu0_len = sizeof(menu0) / sizeof(const char*);
+
    HLH_gui_element *menus[3];
-   menus[0] = (HLH_gui_element *)HLH_gui_menu_create(&win->e,HLH_GUI_STYLE_01|HLH_GUI_NO_PARENT,HLH_GUI_FILL_X|HLH_GUI_STYLE_01,menu0,3,menu_load_msg);
-   menus[1] = (HLH_gui_element *)HLH_gui_menu_create(&win->e,HLH_GUI_STYLE_01|HLH_GUI_NO_PARENT,HLH_GUI_FILL_X|HLH_GUI_STYLE_01,menu1,3,menu_save_msg);
-   menus[2] = (HLH_gui_element *)HLH_gui_menu_create(&win->e,HLH_GUI_STYLE_01|HLH_GUI_NO_PARENT,HLH_GUI_FILL_X|HLH_GUI_STYLE_01,menu2,1,menu_tools_msg);
+   menus[0] = (HLH_gui_element *)HLH_gui_menu_create(&win->e,HLH_GUI_STYLE_01|HLH_GUI_NO_PARENT,HLH_GUI_FILL_X|HLH_GUI_STYLE_02,menu0,menu0_len,menu_file_msg);
+   menus[1] = (HLH_gui_element *)HLH_gui_menu_create(&win->e,HLH_GUI_STYLE_01|HLH_GUI_NO_PARENT,HLH_GUI_FILL_X|HLH_GUI_STYLE_02,example_palettes,example_palettes_len,menu_example_palettes_msg);
+   menus[2] = (HLH_gui_element *)HLH_gui_menu_create(&win->e,HLH_GUI_STYLE_01|HLH_GUI_NO_PARENT,HLH_GUI_FILL_X|HLH_GUI_STYLE_02,example_images,example_images_len,menu_example_images_msg);
+   const size_t menus_len = sizeof(menus) / sizeof(HLH_gui_element*);
 
    const char *menubar[] = 
    {
-      "Load",
-      "Save",
-      "Tools",
+      "File",
+      "Example Palettes",
+      "Example Images",
    };
 
    HLH_gui_group *root_group = HLH_gui_group_create(&win->e,HLH_GUI_FILL);
-   HLH_gui_menubar_create(&root_group->e,HLH_GUI_FILL_X,HLH_GUI_LAYOUT_HORIZONTAL|HLH_GUI_STYLE_01,menubar,menus,3,NULL);
+   HLH_gui_menubar_create(&root_group->e,HLH_GUI_FILL_X,HLH_GUI_LAYOUT_HORIZONTAL|HLH_GUI_STYLE_01,menubar,menus,menus_len,NULL);
    HLH_gui_separator_create(&root_group->e,HLH_GUI_FILL_X,0);
    //-------------------------------------
 
@@ -353,10 +390,10 @@ void gui_construct(void)
 
 
       gui_groups_sample[1] = HLH_gui_group_create(&gui_groups_left[0]->e,HLH_GUI_FILL_X);
-      HLH_gui_label_create(&gui_groups_sample[1]->e,0,"Scale X");
+      HLH_gui_label_create(&gui_groups_sample[1]->e,0,"Scale");
       SLIDER(&gui_groups_sample[1]->e,scale_x,SCALE_X);
-      HLH_gui_label_create(&gui_groups_sample[1]->e,0,"Scale Y");
-      SLIDER(&gui_groups_sample[1]->e,scale_y,SCALE_Y);
+      // HLH_gui_label_create(&gui_groups_sample[1]->e,0,"Scale Y");
+      // SLIDER(&gui_groups_sample[1]->e,scale_y,SCALE_Y);
 
       HLH_gui_radiobutton *r = HLH_gui_radiobutton_create(&group_relative->e,HLH_GUI_LAYOUT_HORIZONTAL,"Absolute",NULL);
       r->e.usr = 0;
@@ -721,91 +758,195 @@ static int radiobutton_scale_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, vo
    return 0;
 }
 
-static int menu_load_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
+static void process_image(FILE* f, const char*)
 {
-   HLH_gui_menubutton *m = (HLH_gui_menubutton *)e;
-
-   if(msg==HLH_GUI_MSG_CLICK_MENU)
+   Image32 *img = NULL;
+   if(f!=NULL)
    {
-      //Image
-      if(m->index==0)
+      int width,height;
+      uint32_t *data = HLH_gui_image_load(f,&width,&height);
+      if(data!=NULL&&width>0&&height>0)
       {
-         Image32 *img = NULL;
-         FILE *f = image_load_select();
-         if(f!=NULL)
-         {
-            int width,height;
-            uint32_t *data = HLH_gui_image_load(f,&width,&height);
-            if(data!=NULL&&width>0&&height>0)
-            {
-               img = malloc(sizeof(*img)+sizeof(*img->data)*width*height);
-               img->width = width;
-               img->height = height;
-               memcpy(img->data,data,sizeof(*img->data)*width*height);
-            }
-            HLH_gui_image_free(data);
-            fclose(f);
-         }
-
-         if(img!=NULL)
-         {
-            HLH_gui_imgcmp_update0(gui_imgcmp,img->data,img->width,img->height,1);
-            if(gui_input!=NULL)
-            {
-               free(gui_input);
-               gui_input = NULL;
-            }
-            gui_input = image32_dup(img);
-            free(img);
-
-            gui_process(0);
-         }
+         img = malloc(sizeof(*img)+sizeof(*img->data)*width*height);
+         img->width = width;
+         img->height = height;
+         memcpy(img->data,data,sizeof(*img->data)*width*height);
       }
-      //Preset
-      else if(m->index==1)
-      {
-         FILE *f = preset_load_select();
-         if(f!=NULL)
-         {
-            gui_load_preset(f);
-            fclose(f);
-         }
-      }
-      //Palette
-      else if(m->index==2)
-      {
-         char ext[512] = {0};
-         FILE *f = palette_load_select(ext);
-         if(f!=NULL)
-         {
-            SLK_palette_load(f,dither_config.palette,&dither_config.palette_colors,ext);
-            fclose(f);
-            block_process = 1;
-            HLH_gui_slider_set(gui.slider_color_count,dither_config.palette_colors-1,255,1,1);
-            HLH_gui_slider_set(gui.slider_color_red,color32_r(dither_config.palette[color_selected]),255,1,1);
-            HLH_gui_slider_set(gui.slider_color_green,color32_g(dither_config.palette[color_selected]),255,1,1);
-            HLH_gui_slider_set(gui.slider_color_blue,color32_b(dither_config.palette[color_selected]),255,1,1);
-            block_process = 0;
-            gui_process(3);
-         }
-      }
+      HLH_gui_image_free(data);
+      fclose(f);
    }
 
-   return 0;
+   if(img!=NULL)
+   {
+      HLH_gui_imgcmp_update0(gui_imgcmp,img->data,img->width,img->height,1);
+      if(gui_input!=NULL)
+      {
+         free(gui_input);
+         gui_input = NULL;
+      }
+      gui_input = image32_dup(img);
+      free(img);
+
+      gui_process(0);
+   }
 }
 
-static int menu_save_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
+
+typedef void (*process_file_type)(FILE*, const char*);
+
+static void load_file_callback(char const *filename, char const *, const void *buffer, size_t buffer_size, void* process_file_callback)
+{
+   if (process_file_callback == NULL)
+   {
+      puts("Invalid callback.");
+      return;
+   }
+   if (buffer == NULL || buffer_size == 0)
+   {
+      return;
+   }
+   // Write the buffer data to a local file. We do that because the function expects a file handler
+   FILE* f = fopen(filename, "wb");
+   if (f == NULL)
+   {
+      puts("Fail to write to a local file.");
+      return;
+   }
+   fwrite(buffer, buffer_size, 1U, f);
+   fflush(f);
+   f = fopen(filename, "rb");
+
+   // Process the file, asumes that the callee fclose() the file
+   printf("Calling callback for %s.\n", filename);
+   (*(process_file_type)(process_file_callback))(f, filename);
+}
+
+
+static void process_preset_callback(FILE* f, const char* ext)
+{
+   gui_load_preset(f);
+   printf("Finish loading preset %s\n", ext);
+}
+static void process_palette(FILE* f, const char* ext)
+{
+   SLK_palette_load(f,dither_config.palette,&dither_config.palette_colors,ext);
+   fclose(f);
+   block_process = 1;
+   HLH_gui_slider_set(gui.slider_color_count,dither_config.palette_colors-1,255,1,1);
+   HLH_gui_slider_set(gui.slider_color_red,color32_r(dither_config.palette[color_selected]),255,1,1);
+   HLH_gui_slider_set(gui.slider_color_green,color32_g(dither_config.palette[color_selected]),255,1,1);
+   HLH_gui_slider_set(gui.slider_color_blue,color32_b(dither_config.palette[color_selected]),255,1,1);
+   block_process = 0;
+   gui_process(3);
+   printf("Finish loading palette %s\n", ext);
+}
+
+static void process_palette_callback(FILE* f, const char* filename)
+{
+   char *last_dot = strrchr(filename,'.');
+   if (last_dot == NULL)
+   {
+      printf("Couldn't find a file extension in filename '%s'", filename);
+      fclose(f);
+      return;
+   }
+   char* ext = last_dot + 1;
+   process_palette(f, ext);
+}
+
+
+void callback_download_png_image(void *context, void *data, int size)
+{
+   if (size <= 0 || data == NULL)
+   {
+      return;
+   }
+   emscripten_download("output_image.png", "image/png", data, size);
+}
+
+void download_local_file(const char* filename, const char* mime)
+{
+   // Open file
+   FILE* f = fopen(filename, "rb");
+   if(f == NULL)
+   {
+      return;
+   }
+
+   // Find its length
+   fseek(f, 0, SEEK_END);
+   long fsize = ftell(f);
+   fseek(f, 0, SEEK_SET);
+
+   // Allocate buffer and copy the file content
+   char *file_data = malloc(fsize);
+   fread(file_data, fsize, 1, f);
+   fclose(f);
+
+   // Trigger a "Save as" popup in the user's buffer
+   emscripten_download(filename, mime, file_data, fsize);
+
+   free(file_data);
+}
+
+static int menu_file_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 {
    HLH_gui_menubutton *m = (HLH_gui_menubutton *)e;
 
    if(msg==HLH_GUI_MSG_CLICK_MENU)
    {
-      //Image
+      // Load Image
       if(m->index==0)
+      {
+
+#ifdef __EMSCRIPTEN__
+      // Emscripten upload is a non-blocking call, so we register a callback which will load the image
+      emscripten_upload(".png", &load_file_callback, &process_image);
+#else
+      // Regular upload is blocking
+      FILE *f = image_load_select();
+      process_image(f, NULL);
+#endif
+
+      }
+      // Load Preset
+      else if(m->index==1)
+      {
+#ifdef __EMSCRIPTEN__
+      emscripten_upload(".json", &load_file_callback, &process_preset_callback);
+#else
+      // Regular upload is blocking
+      FILE *f = preset_load_select();
+      if(f!=NULL)
+      {
+         gui_load_preset(f);
+      }
+#endif
+      }
+      // Load Palette
+      else if(m->index==2)
+      {
+#ifdef __EMSCRIPTEN__
+      puts("Loading palette!");
+      emscripten_upload(".png,.pal,.gpl,.hex", &load_file_callback, &process_palette_callback);
+#else
+      char ext[512] = {0};
+      FILE *f = palette_load_select(ext);
+      if(f!=NULL)
+      {
+         process_palette(f, ext)
+      }
+#endif
+      }
+      // Save Image
+      if(m->index==3)
       {
          if(gui_output==NULL)
             return 0;
 
+#ifdef __EMSCRIPTEN__
+         stbi_write_png_to_func(callback_download_png_image, NULL, gui_output32->width, gui_output32->height, 4, gui_output32->data, gui_output32->width*4);
+#else
          char ext[512] = {0};
          char path[1024] = {0};
          image_save_select(path,ext);
@@ -823,23 +964,11 @@ static int menu_save_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
                fclose(fp);
             }
          }
-//int image8_save(const Image8 *img, const char *path, const char *ext);
-         //HLH_gui_image_save(f,gui_output->data,gui_output->width,gui_output->height,ext);
-         //if(strcmp(ext,"pcx")==0||strcmp(ext,"PCX")==0)
-            //image32_write_pcx(f,gui_output,dither_config.palette,dither_config.palette_colors);
-         //else
-            //HLH_gui_image_save(f,gui_output->data,gui_output->width,gui_output->height,ext);
-
-         //if(f!=NULL)
-            //fclose(f);
-
-         //const char *image = image_save_select();
-         //HLH_gui_image_save(image,gui_output->data,gui_output->w,gui_output->h);
+#endif
       }
-      //Preset
-      else if(m->index==1)
+      // Save Preset
+      else if(m->index==4)
       {
-         FILE *f = preset_save_select();
          //const char *preset = preset_save_select();
          //FILE *f = fopen(preset,"w");
          //if(f==NULL)
@@ -852,7 +981,7 @@ static int menu_save_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
          HLH_json_object_add_real(&root->root,"y_offset",y_offset);
          HLH_json_object_add_boolean(&root->root,"scale_relative",scale_relative);
          HLH_json_object_add_integer(&root->root,"size_relative_x",size_relative_x);
-         HLH_json_object_add_integer(&root->root,"size_relative_y",size_relative_y);
+         HLH_json_object_add_integer(&root->root,"size_relative_y",size_relative_x); // Set size_relative_y to the x value
          HLH_json_object_add_integer(&root->root,"size_absolute_x",size_absolute_x);
          HLH_json_object_add_integer(&root->root,"size_absolute_y",size_absolute_y);
          HLH_json_object_add_real(&root->root,"sharp_amount",sharp_amount);
@@ -876,15 +1005,41 @@ static int menu_save_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
             HLH_json_array_add_integer(&array,dither_config.palette[i]);
          HLH_json_object_add_array(&root->root,"dither_palette",array);
 
+#ifdef __EMSCRIPTEN__
+         const char* output_setting_filename = "output_settings.json";
+         // For emscripten we first write the setting to a local file, then read the file into memory and then download the file
+         FILE *f = fopen(output_setting_filename, "w");
+#else
+         FILE *f = preset_save_select();
+#endif
          HLH_json_write_file(f,&root->root);
+
          HLH_json_free(root);
 
-         if(f!=NULL)
-            fclose(f);
+         if (f!=NULL)
+         {
+           fflush(f);
+           fclose(f);
+         }
+
+#ifdef __EMSCRIPTEN__
+      download_local_file(output_setting_filename, "application/json");
+#endif
       }
-      //Palette
-      else if(m->index==2)
+      // Save Palette as .pal or .hex
+      else if(m->index==5 || m->index==6)
       {
+         const int is_hex = m->index == 6;
+#ifdef __EMSCRIPTEN__
+         const char* output_palette_filename = is_hex ?  "palette.hex" :  "palette";
+         const char* output_palette_extension = is_hex ?  "hex" :  "pal";
+         FILE *f = fopen(output_palette_filename, "w");
+         SLK_palette_save(f,dither_config.palette,dither_config.palette_colors,output_palette_extension);
+         fflush(f);
+         fclose(f);
+
+         download_local_file(output_palette_filename, "application/binary");
+#else
          char ext[512] = {0};
          FILE *f = palette_save_select(ext);
          //const char *palette = palette_save_select();
@@ -892,11 +1047,63 @@ static int menu_save_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
          SLK_palette_save(f,dither_config.palette,dither_config.palette_colors,ext);
          if(f!=NULL)
             fclose(f);
+#endif
       }
    }
 
    return 0;
 }
+
+
+static int menu_example_palettes_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
+{
+   if(msg != HLH_GUI_MSG_CLICK_MENU)
+   {
+      return 0;
+   }
+   HLH_gui_menubutton *m = (HLH_gui_menubutton *)e;
+   if (m->index < 0 || m->index >= example_palettes_len)
+   {
+      return 0;
+   }
+   const char* filename_without_ext = example_palettes[m->index];
+
+   const char* path_to_image_dir = "asset_dir/palette/";
+   char filename[128] = {0};
+   strcat(filename, path_to_image_dir);
+   strcat(filename, filename_without_ext);
+   strcat(filename, ".pal");
+
+   FILE *f = fopen(filename, "rb");
+   process_palette(f, "pal");
+   return 0;
+}
+
+
+static int menu_example_images_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
+{
+   if(msg != HLH_GUI_MSG_CLICK_MENU)
+   {
+      return 0;
+   }
+   HLH_gui_menubutton *m = (HLH_gui_menubutton *)e;
+   if (m->index < 0 || m->index >= example_images_len)
+   {
+      return 0;
+   }
+   const char* filename_without_ext = example_images[m->index];
+
+   const char* path_to_image_dir = "asset_dir/images/";
+   char filename[128] = {0};
+   strcat(filename, path_to_image_dir);
+   strcat(filename, filename_without_ext);
+   strcat(filename, ".png");
+
+   FILE *f = fopen(filename, "rb");
+   process_image(f, NULL);
+   return 0;
+}
+
 
 static int menu_help_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 {
@@ -1521,7 +1728,7 @@ static void gui_process(int from)
       if(scale_relative)
       {
          width = img->width/HLH_non_zero(size_relative_x);
-         height = img->height/HLH_non_zero(size_relative_y);
+         height = img->height/HLH_non_zero(size_relative_x);
       }
       else
       {
@@ -1586,7 +1793,7 @@ void gui_load_preset(FILE *f)
       sample_mode = (int)HLH_json_get_object_integer(&root->root,"sample_mode",0);
       x_offset = (float)HLH_json_get_object_real(&root->root,"x_offset",0.f);
       y_offset = (float)HLH_json_get_object_real(&root->root,"y_offset",0.f);
-      scale_relative = HLH_json_get_object_boolean(&root->root,"scale_relative",0);
+      scale_relative = HLH_json_get_object_boolean(&root->root,"scale_relative",1);
       size_relative_x = (int)HLH_json_get_object_integer(&root->root,"size_relative_x",2);
       size_relative_y = (int)HLH_json_get_object_integer(&root->root,"size_relative_y",2);
       size_absolute_x = (int)HLH_json_get_object_integer(&root->root,"size_absolute_x",64);
@@ -1615,6 +1822,7 @@ void gui_load_preset(FILE *f)
       HLH_json_free(root);
 
       color_selected = 0;
+      fclose(f);
    }
    else
    {
@@ -1622,7 +1830,7 @@ void gui_load_preset(FILE *f)
       sample_mode = 0;
       x_offset = 0.f;
       y_offset = 0.f;
-      scale_relative = 0;
+      scale_relative = 1;
       size_relative_x = 2;
       size_relative_y = 2;
       size_absolute_x = 64;
@@ -1936,7 +2144,7 @@ static int button_batch_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *d
                if(scale_relative)
                {
                   width = img64->width/HLH_non_zero(size_relative_x);
-                  height = img64->height/HLH_non_zero(size_relative_y);
+                  height = img64->height/HLH_non_zero(size_relative_x);
                }
                else
                {

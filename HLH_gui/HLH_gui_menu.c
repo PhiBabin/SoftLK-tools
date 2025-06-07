@@ -23,6 +23,7 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 
 //Variables
 //-------------------------------------
+static const int ver_padding = 30;
 
 //Function prototypes
 static int menubutton_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp);
@@ -56,7 +57,7 @@ static int menubutton_msg(HLH_gui_element *e, HLH_gui_msg msg, int di, void *dp)
 
    if(msg==HLH_GUI_MSG_GET_WIDTH)
    {
-      return button->text_len * HLH_GUI_GLYPH_WIDTH * HLH_gui_get_scale() + 10 * HLH_gui_get_scale();
+      return button->text_len * HLH_GUI_GLYPH_WIDTH * HLH_gui_get_scale() + ver_padding * HLH_gui_get_scale();
    }
    else if(msg==HLH_GUI_MSG_GET_HEIGHT)
    {
@@ -112,10 +113,10 @@ static void menubutton_draw(HLH_gui_menubutton *b)
 {
    uint64_t style = b->e.flags & HLH_GUI_STYLE;
 
+   HLH_gui_rect bounds = b->e.bounds;
+   int scale = HLH_gui_get_scale();
    if(style==HLH_GUI_STYLE_00)
    {
-      HLH_gui_rect bounds = b->e.bounds;
-      int scale = HLH_gui_get_scale();
 
       //Infill
       HLH_gui_draw_rectangle_fill(&b->e, HLH_gui_rect_make(bounds.minx + scale, bounds.miny + scale, bounds.maxx - scale, bounds.maxy - scale), 0xff5a5a5a);
@@ -143,16 +144,16 @@ static void menubutton_draw(HLH_gui_menubutton *b)
 
       HLH_gui_draw_string(&b->e, bounds, b->text, b->text_len, 0xff000000, 1);
    }
-   else if(style==HLH_GUI_STYLE_01)
+   else if(style==HLH_GUI_STYLE_01 || style==HLH_GUI_STYLE_02)
    {
-      HLH_gui_rect bounds = b->e.bounds;
 
       if(b->state)
          HLH_gui_draw_rectangle_fill(&b->e, bounds, 0xff323232);
       else
          HLH_gui_draw_rectangle_fill(&b->e, bounds, 0xff5a5a5a);
 
-      HLH_gui_draw_string(&b->e, bounds, b->text, b->text_len, 0xff000000, 1);
+      const int is_align_center = style==HLH_GUI_STYLE_02 ? 0 : 1;
+      HLH_gui_draw_string(&b->e, HLH_gui_rect_shrink(&bounds, ver_padding / 2 * scale, 0), b->text, b->text_len, 0xff000000, is_align_center);
    }
 }
 //-------------------------------------
