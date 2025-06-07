@@ -1,4 +1,8 @@
 name: Build and deploy emscripten static website
+on:
+  push:
+    branches:
+      - emscripten_port
 jobs:
   build:
     runs-on: ubuntu-latest
